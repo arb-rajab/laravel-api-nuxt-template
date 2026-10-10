@@ -28,6 +28,7 @@ _Last updated: 2026-10-10. Starter template extracted from `bookslot`; update wh
 - Required contexts: `Backend (lint, static analysis, tests)`, `Frontend (lint, typecheck, unit tests, build)`, `End-to-end (real browser, real API)`, `Secret scanning (gitleaks)`. Nothing else is required on purpose: osv-scanner, npm audit, dependency review and CodeQL depend on a moving advisory database or run only on some events.
 - Closed unmerged on 2026-10-10, each with an explanatory comment: #1 (`node` 22 -> 25 in `/frontend`, non-LTS). If Dependabot recreates one, apply the merge policy; the closure is not re-raised. Dependabot does not re-propose a major after its PR is closed, so a later upgrade is a manual change.
 - Dependabot security-update jobs for `@simple-git/argv-parser` fail on `main` with `security_update_not_possible` (2026-10-10): `simple-git` 3.36.0 pins `^1.1.0` and the fix is 2.0.1. These runs show as `Dependabot` check runs on `main` and are not CI failures; they stop once the alert is dismissed or the upstream fix lands.
+- Rescan 2026-10-10 (new dimension: leftover placeholders in community files): `SECURITY.md` and `CODE_OF_CONDUCT.md` still had `<SECURITY CONTACT EMAIL>` / `<CONDUCT CONTACT EMAIL>`. Reports now go through GitHub private vulnerability reporting (enabled) and to the project maintainer, as in the other templates. The README no longer calls `LICENSE` a placeholder or `osv-scanner.toml` empty.
 
 ## Deferred (not re-raised each pass)
 

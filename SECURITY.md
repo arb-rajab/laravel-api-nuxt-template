@@ -10,7 +10,7 @@ release) receives security fixes. Update this section when that changes.
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
 Instead, use GitHub's private vulnerability reporting (Security tab ->
-"Report a vulnerability"), or email `<SECURITY CONTACT EMAIL>` directly.
+"Report a vulnerability").
 
 Please include:
 
