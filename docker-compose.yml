@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_superuser_local_only
+      POSTGRES_DB: postgres
+    ports:
+      - "${FORWARD_DB_PORT:-5432}:5432"
+    volumes:
+      - starter-app-postgres-data:/var/lib/postgresql/data
+      # Creates the migrator and app roles and both databases on first boot.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${FORWARD_REDIS_PORT:-6379}:6379"
+    volumes:
+      - starter-app-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional RabbitMQ module. Management UI at http://localhost:15672.
+  # Delete this service (and its volume) if you remove the module.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: starter_app
+      RABBITMQ_DEFAULT_PASS: starter_app_rabbitmq_local_only
+    ports:
+      - "${FORWARD_RABBITMQ_PORT:-5672}:5672"
+      - "${FORWARD_RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - starter-app-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The Nuxt app (see frontend/Dockerfile). Opt in with:
+  #   docker compose --profile frontend up --build
+  # The API is expected on the host (php artisan serve); NUXT_PUBLIC_* values
+  # are baked in at build time.
+  frontend:
+    profiles: ["frontend"]
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+
+volumes:
+  starter-app-postgres-data:
+  starter-app-redis-data:
+  starter-app-rabbitmq-data:

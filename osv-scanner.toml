@@ -1,0 +1,9 @@
+# osv-scanner exemptions. Keep this file empty of entries unless a finding is
+# reviewed and cannot be fixed yet. Entries are by advisory ID, not by package,
+# so a NEW advisory against the same package still fails the scan. Every entry
+# must expire, so a forgotten exemption fails CI instead of lingering:
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2026-12-31T00:00:00Z
+# reason = "Package X version Y, no upstream fix yet. Only reachable via <path>; <why it does not matter>."

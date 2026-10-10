@@ -1,0 +1,349 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege for the GITHUB_TOKEN; jobs that need more declare it themselves.
+permissions:
+  contents: read
+
+env:
+  # Shared by the backend and e2e jobs. These match docker/postgres/init and
+  # .env.testing (fixed, local-only values, nothing real).
+  PGPASSWORD: postgres_superuser_local_only
+
+jobs:
+  backend:
+    name: Backend (lint, static analysis, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    # Service images come from mirror.gcr.io (Google's cache of popular Docker
+    # Hub images: no pull-rate limit). The cache only holds frequently pulled
+    # tags; if a new tag 404s there, use the plain Docker Hub name.
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_superuser_local_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: mirror.gcr.io/library/redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # Needed by `composer test:queue-broker` (optional RabbitMQ module).
+      # Remove this service and the broker step if you delete the module.
+      rabbitmq:
+        image: mirror.gcr.io/library/rabbitmq:4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: starter_app
+          RABBITMQ_DEFAULT_PASS: starter_app_rabbitmq_local_only
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pgsql, pdo_pgsql, redis, sockets, bcmath
+          coverage: none
+
+      # Anonymous Composer/GitHub API requests hit GitHub's low unauthenticated
+      # rate limit quickly across ~130 dependencies. GITHUB_TOKEN is the
+      # runner's own short-lived, repo-scoped token, not a stored secret.
+      - name: Authenticate Composer against GitHub API
+        run: composer config -g github-oauth.github.com "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.json', 'composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+
+      # A fresh clone of the template has no composer.lock yet; commit the one
+      # `composer update` generates, after which CI installs from it.
+      - name: Install PHP dependencies
+        run: |
+          if [ -f composer.lock ]; then
+            composer install --no-interaction --prefer-dist --no-progress
+          else
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
+
+      - name: Prepare environment
+        run: |
+          cp .env.testing .env
+          php artisan key:generate --force
+
+      # The same script docker-compose's postgres service runs on first boot,
+      # reused here so CI and local dev cannot drift on how roles are defined.
+      - name: Create Postgres roles and databases
+        run: psql -h 127.0.0.1 -U postgres -f docker/postgres/init/01-roles-and-database.sql
+
+      - name: Run migrations (migrator role)
+        run: php artisan migrate --database=pgsql_migrator --force
+
+      - name: Lint (Pint)
+        run: composer lint
+
+      - name: Static analysis (PHPStan/Larastan)
+        run: composer analyse
+
+      - name: Fast test gate
+        run: composer test:fast
+
+      - name: Real-broker queue tests (RabbitMQ module)
+        run: composer test:queue-broker
+
+  frontend:
+    name: Frontend (lint, typecheck, unit tests, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit/component tests (Vitest)
+        run: npm run test:unit
+
+      - name: Production build
+        run: npm run build
+
+  e2e:
+    name: End-to-end (real browser, real API)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_superuser_local_only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: mirror.gcr.io/library/redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      rabbitmq:
+        image: mirror.gcr.io/library/rabbitmq:4-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: starter_app
+          RABBITMQ_DEFAULT_PASS: starter_app_rabbitmq_local_only
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: pgsql, pdo_pgsql, redis, sockets, bcmath
+          coverage: none
+
+      - name: Authenticate Composer against GitHub API
+        run: composer config -g github-oauth.github.com "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Install PHP dependencies
+        run: |
+          if [ -f composer.lock ]; then
+            composer install --no-interaction --prefer-dist --no-progress
+          else
+            composer update --no-interaction --prefer-dist --no-progress
+          fi
+
+      # Real dev config (.env.example), not .env.testing: this job proves the
+      # app the way a real browser hits it (Redis sessions, RabbitMQ queue),
+      # not the fast gate's in-process sync/array substitutions.
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --force
+
+      - name: Create Postgres roles and databases
+        run: psql -h 127.0.0.1 -U postgres -f docker/postgres/init/01-roles-and-database.sql
+
+      - name: Run migrations (migrator role)
+        run: php artisan migrate --database=pgsql_migrator --force
+
+      # The specs log in as the seeded admin (admin@example.test).
+      - name: Seed
+        run: php artisan db:seed --force
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright's Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # playwright.config.ts starts both `php artisan serve` and `npm run dev`.
+      - name: E2E tests (Playwright)
+        working-directory: frontend
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+  # Secret scanning over full git history (fetch-depth: 0).
+  gitleaks:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Static analysis for the frontend. PHP is deliberately absent: CodeQL has no
+  # PHP language pack, so the Laravel backend is covered by PHPStan/Larastan in
+  # the backend job instead.
+  codeql:
+    name: CodeQL analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # CodeQL for this repo's own GitHub Actions workflows (injection via
+  # untrusted event data, over-broad token permissions, unsafe checkouts).
+  codeql-actions:
+    name: CodeQL (actions)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          languages: actions
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          category: "/language:actions"
+
+  # Dependency vulnerability scanning (OSV database) over every lockfile found
+  # (composer.lock once you commit it, frontend/package-lock.json). Fails on
+  # any known-vulnerable pinned version; exemptions live in osv-scanner.toml.
+  dependency-scan:
+    name: Dependency scanning (osv-scanner)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+        with:
+          scan-args: |-
+            --config=osv-scanner.toml
+            --recursive
+            ./

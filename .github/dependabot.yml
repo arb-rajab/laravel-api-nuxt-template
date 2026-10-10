@@ -1,0 +1,55 @@
+version: 2
+updates:
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # vue-tsc resolves the type-checker through a TypeScript subpath that
+      # TypeScript 7 removed, so a TypeScript major bump fails typecheck until
+      # vue-tsc supports it. Move both together, and re-verify.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # @types/node must track the Node major CI runs (ci.yml's setup-node), so
+      # a newer major would type APIs the runtime lacks. Move it together with
+      # node-version in ci.yml, not on its own.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Service images pinned in docker-compose*.yml
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # Major bumps of stateful services (databases, brokers) need a
+      # deliberate data-migration plan, not a drive-by version bump.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

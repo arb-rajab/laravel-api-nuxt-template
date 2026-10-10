@@ -1,0 +1,39 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+# .env.testing carries no real secrets: fixed local-only database passwords
+# matching docker/postgres/init and a throwaway APP_KEY. It is committed so
+# `composer ci:check` works the same for every clone and in CI.
+!.env.testing
+
+# Laravel
+/vendor/
+/storage/*.key
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
+/bootstrap/cache/*
+/build/
+composer.phar
+.phpunit.result.cache
+
+# Node / frontend
+node_modules/
+.nuxt/
+.output/
+dist/
+.cache/
+npm-debug.log*
+
+# Docker
+docker-compose.override.yml
