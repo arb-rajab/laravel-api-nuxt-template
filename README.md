@@ -17,7 +17,7 @@ otherwise rebuild on day one.
 | Frontend (`frontend/`) | Nuxt 4, `useApi` (CSRF handling + typed errors), `useFormErrors`, `useSession`, `auth` route middleware, `error.vue`, the shared components below, ESLint, Vitest, Playwright, Dockerfile |
 | Tests | Pest 5 (Feature, Unit), CSRF/login/rate-limit/error-contract tests, Vitest unit tests, Playwright specs against the real API |
 | Tooling | Pint, Larastan (level 8 on `app` and `database`), `.editorconfig`, Docker Compose (Postgres, Redis, RabbitMQ), CI |
-| Governance | MIT `LICENSE` placeholder, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, Dependabot, issue/PR templates, empty `osv-scanner.toml` and `.gitleaksignore`, `scaffold-memory-pack.sh`, empty `docs/project-memory` |
+| Governance | MIT `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, Dependabot, issue/PR templates, `osv-scanner.toml` (dated exceptions only) and an empty `.gitleaksignore`, `scaffold-memory-pack.sh`, empty `docs/project-memory` |
 
 ### Shared components (`frontend/app/components/`)
 
